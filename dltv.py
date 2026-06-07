@@ -73,7 +73,7 @@ def fetch_channels() -> list[dict]:
 
 
 def build_m3u(channels: list[dict]) -> str:
-    lines = [f'#EXTM3U url-tvg="{EPG_URL}" x-tvg-url="{EPG_URL}"\n']
+    lines = [f'#EXTM3U url-tvg="{EPG_URL}"\n']
     for ch in channels:
         ch_id   = ch.get("id", "")
         name    = ch.get("name", "Unknown")
