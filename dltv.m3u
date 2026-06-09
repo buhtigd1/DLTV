@@ -122,7 +122,7 @@ https://hey.dulo.tv/memfs/ba77ea81-a931-48aa-964e-6536852f60cb.m3u8
 #EXTINF:-1 tvg-id="464943" tvg-name="Sony Movie Channel HD | USA" tvg-logo="https://iptvboss.xyz/logos/USA/SonyMovieChannel.us.png" group-title="Movies",Sony Movie Channel HD | USA
 https://gotcha.dulo.tv/memfs/3d0c8718-92d6-4734-8448-863a9481b8d7.m3u8
 #EXTINF:-1 tvg-id="465077" tvg-name="Spectrum SportsNet LA Dodgers HD | USA" tvg-logo="https://iptvboss.xyz/logos/USA/SpectrumSportsNetLADodgers.us.png" group-title="Sports",Spectrum SportsNet LA Dodgers HD | USA
-https://images.dulo.tv/memfs/c12d46a2-a58e-4dd8-a178-533365efc760.m3u8
+https://hey.dulo.tv/memfs/4a0c2a1f-bbb5-4cf0-998a-31b2eeb5869a.m3u8
 #EXTINF:-1 tvg-id="465115" tvg-name="Starz Cinema HD | USA" tvg-logo="https://iptvboss.xyz/logos/USA/StarzCinema.us.png" group-title="Movies",Starz Cinema HD | USA
 https://hey.dulo.tv/memfs/2df70247-3213-47e3-8553-bc8c28d0c67f.m3u8
 #EXTINF:-1 tvg-id="464975" tvg-name="Starz East HD | USA" tvg-logo="https://iptvboss.xyz/logos/USA/Starz.us.png" group-title="Movies",Starz East HD | USA
@@ -219,3 +219,5 @@ https://bridge.dulo.tv/memfs/79bcd103-4636-4a23-9372-f2a58fa49288.m3u8
 https://hey.dulo.tv/memfs/b0bfb3af-3b3a-49bc-ace2-a0a1bdfb38e9.m3u8
 #EXTINF:-1 tvg-id="465058" tvg-name="Chicago Sports Network HD | USA" tvg-logo="https://cdn.iptvboss.pro/logos/USA/ChicagoSportsNetwork.us.png" group-title="Sports",Chicago Sports Network HD | USA
 https://bridge.dulo.tv/memfs/a45a9917-b8e0-4473-bb0e-1ec2377be9d7.m3u8
+#EXTINF:-1 tvg-id="464783" tvg-name="Golf Channel HD | USA" tvg-logo="https://cdn.iptvboss.pro/logos/USA/GolfChannel.us.png" group-title="Sports",Golf Channel HD | USA
+https://gotcha.dulo.tv/memfs/f10f14c7-c851-463c-839c-b86c643d33e0.m3u8
