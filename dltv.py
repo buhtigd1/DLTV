@@ -57,18 +57,32 @@ def extract_epg_channel_id(epg_source_url: str) -> str | None:
 
 def fetch_channels() -> list[dict]:
     print("Fetching channel list from dulo.tv …")
-    # cloudscraper solves Cloudflare JS/cookie challenges automatically
     scraper = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     )
     r = scraper.get(CHANNELS_API, timeout=30)
     if r.status_code != 200:
-        print(f"  [error] HTTP {r.status_code} from dulo.tv")
-        print(f"  Response: {r.text[:300]}")
+        print(f"[error] HTTP {r.status_code}")
+        print(r.text[:300])
         sys.exit(1)
-    data = r.json()
-    channels = data.get("channels", data) if isinstance(data, dict) else data
-    print(f"  → {len(channels)} channels")
+
+    try:
+        data = r.json()
+    except Exception as e:
+        print("JSON decode failed:", e)
+        print(r.text[:500])
+        sys.exit(1)
+
+    if isinstance(data, dict):
+        channels = data.get("channels") or data.get("data") or []
+    elif isinstance(data, list):
+        channels = data
+    else:
+        channels = []
+
+    print(f"→ {len(channels)} channels")
+    if channels:
+        print("Sample channel:", channels[0])
     return channels
 
 
@@ -79,10 +93,13 @@ def build_m3u(channels: list[dict]) -> str:
         name    = ch.get("name", "Unknown")
         logo    = ch.get("logo_url", "")
         group   = ch.get("category", "General").title()
-        stream  = ch.get("source_url", "")
+        # Accept multiple possible stream keys
+        stream  = ch.get("source_url") or ch.get("stream_url") or ch.get("url", "")
+        # Fall back to channel id if epg_source_url missing
         epg_cid = extract_epg_channel_id(ch.get("epg_source_url", "")) or ch_id
 
         if not stream:
+            print(f"Skipping channel {name}: no stream key found")
             continue
 
         lines.append(
@@ -120,12 +137,13 @@ def build_epg(channels: list[dict]) -> bytes:
 
     total = len(channels)
     for i, ch in enumerate(channels, 1):
-        ch_id = extract_epg_channel_id(ch.get("epg_source_url", ""))
+        # Fall back to channel id if epg_source_url missing
+        ch_id = extract_epg_channel_id(ch.get("epg_source_url", "")) or ch.get("id")
         if not ch_id:
             continue
 
         print(f"  [{i}/{total}] EPG for {ch.get('name', ch_id)} (id={ch_id})")
-        root = fetch_epg_xml(session, ch_id)
+        root = fetch_epg_xml(session, str(ch_id))
         if root is None:
             time.sleep(EPG_FETCH_DELAY)
             continue
