@@ -13,6 +13,7 @@ import gzip
 import re
 import sys
 import time
+import os
 from xml.etree import ElementTree as ET
 
 import cloudscraper
@@ -26,7 +27,9 @@ EPG_URL     = f"{BASE_RAW}/dltv.xml.gz"
 M3U_OUT     = "dltv.m3u"
 EPG_OUT     = "dltv.xml.gz"
 
+LOGIN_URL    = "https://dulo.tv/api/auth/login"
 CHANNELS_API = "https://dulo.tv/api/live-tv/channels"
+PLAY_URL     = "https://dulo.tv/api/live-tv/play/{channel_id}"
 EPG_API      = "https://epg.pw/api/epg.xml?channel_id={channel_id}"
 
 EPG_FETCH_DELAY = 0.5
@@ -43,6 +46,23 @@ EPG_HEADERS = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def login():
+    username = os.getenv("DULO_USER")
+    password = os.getenv("DULO_PASS")
+    if not username or not password:
+        raise RuntimeError("Missing DULO_USER or DULO_PASS environment variables")
+
+    print("Logging in to dulo.tv …")
+    session = cloudscraper.create_scraper()
+    r = session.post(LOGIN_URL, json={"username": username, "password": password})
+    if r.status_code != 200:
+        print(f"[error] Login failed: HTTP {r.status_code}")
+        print(r.text[:300])
+        sys.exit(1)
+    print("Login successful.")
+    return session
+
+
 def extract_epg_channel_id(epg_source_url: str) -> str | None:
     if not epg_source_url:
         return None
@@ -55,12 +75,9 @@ def extract_epg_channel_id(epg_source_url: str) -> str | None:
     return None
 
 
-def fetch_channels() -> list[dict]:
+def fetch_channels(session) -> list[dict]:
     print("Fetching channel list from dulo.tv …")
-    scraper = cloudscraper.create_scraper(
-        browser={"browser": "chrome", "platform": "windows", "mobile": False}
-    )
-    r = scraper.get(CHANNELS_API, timeout=30)
+    r = session.get(CHANNELS_API, timeout=30)
     if r.status_code != 200:
         print(f"[error] HTTP {r.status_code}")
         print(r.text[:300])
@@ -86,20 +103,26 @@ def fetch_channels() -> list[dict]:
     return channels
 
 
-def build_m3u(channels: list[dict]) -> str:
+def fetch_stream_url(session, channel_id: str) -> str | None:
+    r = session.get(PLAY_URL.format(channel_id=channel_id), timeout=20)
+    if r.status_code == 200:
+        data = r.json()
+        return data.get("stream_url") or data.get("url")
+    return None
+
+
+def build_m3u(session, channels: list[dict]) -> str:
     lines = [f'#EXTM3U url-tvg="{EPG_URL}"\n']
     for ch in channels:
         ch_id   = ch.get("id", "")
         name    = ch.get("name", "Unknown")
         logo    = ch.get("logo_url", "")
         group   = ch.get("category", "General").title()
-        # Accept multiple possible stream keys
-        stream  = ch.get("source_url") or ch.get("stream_url") or ch.get("url", "")
-        # Fall back to channel id if epg_source_url missing
+        stream  = fetch_stream_url(session, ch_id)
         epg_cid = extract_epg_channel_id(ch.get("epg_source_url", "")) or ch_id
 
         if not stream:
-            print(f"Skipping channel {name}: no stream key found")
+            print(f"Skipping channel {name}: no stream URL found")
             continue
 
         lines.append(
@@ -137,7 +160,6 @@ def build_epg(channels: list[dict]) -> bytes:
 
     total = len(channels)
     for i, ch in enumerate(channels, 1):
-        # Fall back to channel id if epg_source_url missing
         ch_id = extract_epg_channel_id(ch.get("epg_source_url", "")) or ch.get("id")
         if not ch_id:
             continue
@@ -169,10 +191,11 @@ def build_epg(channels: list[dict]) -> bytes:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    channels = fetch_channels()
+    session = login()
+    channels = fetch_channels(session)
 
     print("\nBuilding M3U playlist …")
-    m3u_content = build_m3u(channels)
+    m3u_content = build_m3u(session, channels)
     with open(M3U_OUT, "w", encoding="utf-8") as f:
         f.write(m3u_content)
     print(f"  → wrote {M3U_OUT} ({len(m3u_content):,} bytes)")
