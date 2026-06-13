@@ -28,6 +28,7 @@ jobs:
         env:
           SUPABASE_TOKEN: ${{ secrets.SUPABASE_TOKEN }}
           SUPABASE_REFRESH: ${{ secrets.SUPABASE_REFRESH }}
+          DULO_PROFILE_ID: ${{ secrets.DULO_PROFILE_ID }}
         run: python dltv.py
 
       - name: Commit & push outputs
