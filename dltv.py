@@ -5,6 +5,7 @@ Fetches live channel data from dulo.tv, produces:
   - dltv.m3u       (M3U playlist with EPG header)
   - dltv.xml.gz    (merged XMLTV EPG, gzip-compressed)
 
+Authentication: Supabase access_token + refresh_token
 EPG data sourced from epg.pw per-channel XML API.
 Run every 4 hours via GitHub Actions to handle tokenised stream URLs.
 """
@@ -27,10 +28,14 @@ EPG_URL     = f"{BASE_RAW}/dltv.xml.gz"
 M3U_OUT     = "dltv.m3u"
 EPG_OUT     = "dltv.xml.gz"
 
-LOGIN_URL    = "https://dulo.tv/api/auth/login"
 CHANNELS_API = "https://dulo.tv/api/live-tv/channels"
 PLAY_URL     = "https://dulo.tv/api/live-tv/play/{channel_id}"
 EPG_API      = "https://epg.pw/api/epg.xml?channel_id={channel_id}"
+
+SUPABASE_URL = "https://bppkbjyfrtjuvrwrayop.supabase.co"
+
+ACCESS_TOKEN = os.getenv("SUPABASE_TOKEN")
+REFRESH_TOKEN = os.getenv("SUPABASE_REFRESH")
 
 EPG_FETCH_DELAY = 0.5
 
@@ -44,24 +49,44 @@ EPG_HEADERS = {
     "Referer": "https://epg.pw/",
 }
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Auth Helpers ──────────────────────────────────────────────────────────────
 
-def login():
-    username = os.getenv("DULO_USER")
-    password = os.getenv("DULO_PASS")
-    if not username or not password:
-        raise RuntimeError("Missing DULO_USER or DULO_PASS environment variables")
-
-    print("Logging in to dulo.tv …")
+def get_session():
+    """Return a scraper session with valid Supabase token."""
+    global ACCESS_TOKEN
+    if not ACCESS_TOKEN:
+        raise RuntimeError("Missing SUPABASE_TOKEN")
     session = cloudscraper.create_scraper()
-    r = session.post(LOGIN_URL, json={"username": username, "password": password})
-    if r.status_code != 200:
-        print(f"[error] Login failed: HTTP {r.status_code}")
-        print(r.text[:300])
-        sys.exit(1)
-    print("Login successful.")
+    session.headers.update({"Authorization": f"Bearer {ACCESS_TOKEN}"})
     return session
 
+def refresh_access_token():
+    """Refresh the Supabase access token using the refresh token."""
+    global ACCESS_TOKEN
+    if not REFRESH_TOKEN:
+        raise RuntimeError("Missing SUPABASE_REFRESH")
+    url = f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token"
+    r = requests.post(url, json={"refresh_token": REFRESH_TOKEN})
+    if r.status_code != 200:
+        print(f"[error] Refresh failed: {r.status_code}")
+        print(r.text[:300])
+        sys.exit(1)
+    data = r.json()
+    ACCESS_TOKEN = data["access_token"]
+    print("Access token refreshed.")
+    return ACCESS_TOKEN
+
+def safe_request(session, url, **kwargs):
+    """Perform a request, auto-refreshing token if needed."""
+    r = session.get(url, **kwargs)
+    if r.status_code == 401:
+        print("Token expired, refreshing…")
+        refresh_access_token()
+        session.headers.update({"Authorization": f"Bearer {ACCESS_TOKEN}"})
+        r = session.get(url, **kwargs)
+    return r
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def extract_epg_channel_id(epg_source_url: str) -> str | None:
     if not epg_source_url:
@@ -74,42 +99,24 @@ def extract_epg_channel_id(epg_source_url: str) -> str | None:
         return m.group(1)
     return None
 
-
 def fetch_channels(session) -> list[dict]:
     print("Fetching channel list from dulo.tv …")
-    r = session.get(CHANNELS_API, timeout=30)
+    r = safe_request(session, CHANNELS_API, timeout=30)
     if r.status_code != 200:
         print(f"[error] HTTP {r.status_code}")
         print(r.text[:300])
         sys.exit(1)
-
-    try:
-        data = r.json()
-    except Exception as e:
-        print("JSON decode failed:", e)
-        print(r.text[:500])
-        sys.exit(1)
-
-    if isinstance(data, dict):
-        channels = data.get("channels") or data.get("data") or []
-    elif isinstance(data, list):
-        channels = data
-    else:
-        channels = []
-
+    data = r.json()
+    channels = data.get("channels", data) if isinstance(data, dict) else data
     print(f"→ {len(channels)} channels")
-    if channels:
-        print("Sample channel:", channels[0])
     return channels
 
-
 def fetch_stream_url(session, channel_id: str) -> str | None:
-    r = session.get(PLAY_URL.format(channel_id=channel_id), timeout=20)
+    r = safe_request(session, PLAY_URL.format(channel_id=channel_id), timeout=20)
     if r.status_code == 200:
         data = r.json()
         return data.get("stream_url") or data.get("url")
     return None
-
 
 def build_m3u(session, channels: list[dict]) -> str:
     lines = [f'#EXTM3U url-tvg="{EPG_URL}"\n']
@@ -132,7 +139,6 @@ def build_m3u(session, channels: list[dict]) -> str:
         )
     return "".join(lines)
 
-
 def fetch_epg_xml(session: requests.Session, channel_id: str) -> ET.Element | None:
     url = EPG_API.format(channel_id=channel_id)
     try:
@@ -144,7 +150,6 @@ def fetch_epg_xml(session: requests.Session, channel_id: str) -> ET.Element | No
     except Exception as e:
         print(f"    [warn] EPG fetch failed for channel_id={channel_id}: {e}")
         return None
-
 
 def build_epg(channels: list[dict]) -> bytes:
     session = requests.Session()
@@ -187,11 +192,10 @@ def build_epg(channels: list[dict]) -> bytes:
     xml_bytes = b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(tv, encoding="unicode").encode()
     return xml_bytes
 
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    session = login()
+    session = get_session()
     channels = fetch_channels(session)
 
     print("\nBuilding M3U playlist …")
@@ -207,7 +211,6 @@ def main():
     print(f"  → wrote {EPG_OUT} ({len(xml_bytes):,} bytes uncompressed)")
 
     print("\nDone.")
-
 
 if __name__ == "__main__":
     main()
